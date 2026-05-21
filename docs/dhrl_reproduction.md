@@ -1,31 +1,28 @@
-# D-HRL Reproduction Notes
+# D-HRL 复现说明
 
-This project now includes code for the paper `2407.06499v1`, not only the single-RL PPO
-baseline used earlier for PointNav curves.
+本项目现在包含 `2407.06499v1` 论文对应的 D-HRL 复现代码，而不只是之前用于 PointNav 曲线的 single-RL PPO baseline。
 
-## Paper-to-Code Mapping
+## 论文模块与代码对应关系
 
-| Paper component | Code |
+| 论文模块 | 代码位置 |
 | --- | --- |
-| Upper Layer (exteroceptive feature extraction) | `dhrl.models.DistributedHierarchicalActorCritic.upper` |
-| Middle Layer (RNN spatiotemporal memory) | `dhrl.models.DistributedHierarchicalActorCritic.middle` |
-| Lower Layer (pretrained locomotion controller interface) | `dhrl.models.LowerLayerCommandAdapter`, `dhrl.isaac_adapter` |
-| Distributed scalable partial observation | `dhrl.proxy_envs.BaseProxyEnv._nearest_rel` |
-| IPPO multi-agent optimization | `dhrl.ippo.train` |
-| No Hierarchy ablation | `dhrl.models.NoHierarchyActorCritic` |
-| No Spatiotemporal Memory ablation | `dhrl.models.NoMemoryActorCritic` |
-| Cooperative Transport | `dhrl.proxy_envs.CooperativeTransportEnv` |
-| Corridor Crossing | `dhrl.proxy_envs.CorridorCrossingEnv` |
-| Ravine Bridging | `dhrl.proxy_envs.RavineBridgingEnv` |
+| 上层模块：外感知特征提取 | `dhrl.models.DistributedHierarchicalActorCritic.upper` |
+| 中层模块：RNN 时空记忆 | `dhrl.models.DistributedHierarchicalActorCritic.middle` |
+| 下层模块：预训练 locomotion controller 接口 | `dhrl.models.LowerLayerCommandAdapter`, `dhrl.isaac_adapter` |
+| 分布式可扩展的局部观测 | `dhrl.proxy_envs.BaseProxyEnv._nearest_rel` |
+| IPPO 多智能体优化 | `dhrl.ippo.train` |
+| 无层级结构消融 | `dhrl.models.NoHierarchyActorCritic` |
+| 无时空记忆消融 | `dhrl.models.NoMemoryActorCritic` |
+| Cooperative Transport 场景 | `dhrl.proxy_envs.CooperativeTransportEnv` |
+| Corridor Crossing 场景 | `dhrl.proxy_envs.CorridorCrossingEnv` |
+| Ravine Bridging 场景 | `dhrl.proxy_envs.RavineBridgingEnv` |
 
-## What Is Still Needed For Paper-Exact Numbers
+## 距离论文精确数值还需要什么
 
-The paper's reported success rates require:
+论文报告的 success rate 需要以下内容：
 
-1. IsaacSim/Gym assets for the three environments.
-2. A pretrained Ant lower-layer locomotion controller.
-3. The exact physical reset distributions and reward coefficients.
+1. IsaacSim/Gym 中三个具身协作环境的完整资产。
+2. 预训练的 Ant 低层 locomotion controller。
+3. 与论文一致的物理 reset 分布和 reward 系数。
 
-The current proxy tasks are intentionally lightweight so the algorithm and ablations can be run
-without Isaac. They should be treated as an executable reproduction scaffold, not as the final
-Isaac benchmark result.
+当前 proxy 任务刻意保持轻量，目的是在没有 Isaac 的情况下跑通算法结构和消融流程。因此它们应被视为可执行的复现脚手架，而不是最终的 Isaac benchmark 数值。
