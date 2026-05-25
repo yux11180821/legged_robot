@@ -1,0 +1,59 @@
+ENVIRONMENT:
+  MAX_EPISODE_STEPS: 500
+  ITERATOR_OPTIONS:
+    SHUFFLE: True
+    DROP_UNCLOSED_EPISODES: False
+
+SIMULATOR:
+  TYPE: "Sim-v0"
+  FORWARD_STEP_SIZE: 0.25
+  TURN_ANGLE: 10
+
+  # 关键：激活物理引擎
+  HABITAT_SIM_V0:
+    GPU_DEVICE_ID: 0
+    GPU_GPU: True
+    ENABLE_PHYSICS: True
+    # 指向默认的物理引擎配置文件，通常在 habitat-sim/data 目录下
+    PHYSICS_CONFIG_FILE: "data/default.physics_config.json"
+
+  # 代理(Agent)传感器配置：双卡A800显存充足，这里使用 84x84 的标准输入
+  AGENT_0:
+    SENSORS: ['RGB_SENSOR', 'DEPTH_SENSOR']
+    IS_SET_START_STATE: False
+
+  RGB_SENSOR:
+    WIDTH: 84
+    HEIGHT: 84
+    HFOV: 90
+    # 摄像头挂载位置：假设在机器狗头部，高度约 0.3 米
+    POSITION: [0, 0.3, 0.1]
+
+  DEPTH_SENSOR:
+    WIDTH: 84
+    HEIGHT: 84
+    HFOV: 90
+    POSITION: [0, 0.3, 0.1]
+
+TASK:
+  TYPE: "Nav-v0"
+  SUCCESS_DISTANCE: 0.2
+
+  # 导航任务所需的状态传感器
+  SENSORS: ['POINTGOAL_WITH_GPS_COMPASS_SENSOR']
+  POINTGOAL_WITH_GPS_COMPASS_SENSOR:
+    GOAL_FORMAT: "POLAR"
+    DIMENSIONALITY: 2
+
+  # 评估指标
+  MEASUREMENTS: ['DISTANCE_TO_GOAL', 'SUCCESS', 'SPL']
+  SUCCESS:
+    SUCCESS_DISTANCE: 0.2
+
+DATASET:
+  TYPE: "PointNav-v1"
+  SPLIT: "train"
+  # 这里需要指向你服务器上的实际场景数据集路径 (例如 Gibson 或 Matterport3D)
+  # 如果你只是测试，可以使用 Habitat 自带的测试场景
+  DATA_PATH: "data/datasets/pointnav/habitat-test-scenes/v1/{split}/{split}.json.gz"
+  SCENES_DIR: "data/scene_datasets/"
