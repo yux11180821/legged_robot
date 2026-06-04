@@ -44,8 +44,94 @@ ALGORITHMS: dict[str, AlgorithmSpec] = {
 }
 
 
+REQUIRED_SOCIAL_NAV_ASSETS: tuple[str, ...] = (
+    "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json",
+    "data/scene_datasets/hssd-hab/stages/102343992.glb",
+    "data/scene_datasets/hssd-hab/objects/0/0001fb06b075a743e6289236cf049df3ad5dfa9c.glb",
+    "data/datasets/hssd/rearrange/train/social_rearrange.json.gz",
+    "data/humanoids/humanoid_data/female_2/female_2.urdf",
+    "data/humanoids/humanoid_data/female_2/female_2_motion_data_smplx.pkl",
+    "data/robots/hab_spot_arm/urdf/hab_spot_arm.urdf",
+    "data/objects/ycb/configs",
+    "data/objects/amazon_berkeley/configs",
+    "data/objects/google_object_dataset/configs",
+)
+
+
+SOCIAL_NAV_DOWNLOAD_UIDS: tuple[str, ...] = (
+    "hssd-hab",
+    "hab3-episodes",
+    "habitat_humanoids",
+    "hab3_bench_assets",
+    "hab_spot_arm",
+    "ycb",
+)
+
+
+LFS_POINTER_SCAN_ROOTS: tuple[str, ...] = (
+    "data/scene_datasets/hssd-hab",
+    "data/datasets/hssd",
+    "data/humanoids",
+    "data/robots/hab_spot_arm",
+    "data/objects/ycb",
+    "data/objects/amazon_berkeley",
+    "data/objects/google_object_dataset",
+)
+
+GIT_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+
+
 def quote_path(path: Path) -> str:
     return "'" + str(path).replace("'", "'\\''") + "'"
+
+
+def missing_social_nav_assets(project_dir: Path) -> list[Path]:
+    root = Path(project_dir)
+    return [
+        root / rel_path
+        for rel_path in REQUIRED_SOCIAL_NAV_ASSETS
+        if not (root / rel_path).exists()
+    ]
+
+
+def is_git_lfs_pointer(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        if path.stat().st_size > 1024:
+            return False
+        with path.open("rb") as handle:
+            return handle.read(len(GIT_LFS_POINTER_PREFIX)) == GIT_LFS_POINTER_PREFIX
+    except OSError:
+        return False
+
+
+def unresolved_social_nav_lfs_pointers(
+    project_dir: Path,
+    *,
+    limit: int = 50,
+) -> list[Path]:
+    root = Path(project_dir)
+    pointers: list[Path] = []
+    for rel_root in LFS_POINTER_SCAN_ROOTS:
+        scan_root = root / rel_root
+        if not scan_root.exists():
+            continue
+        paths = [scan_root] if scan_root.is_file() else scan_root.rglob("*")
+        for path in paths:
+            if is_git_lfs_pointer(path):
+                pointers.append(path)
+                if len(pointers) >= limit:
+                    return pointers
+    return pointers
+
+
+def social_nav_download_command() -> str:
+    return (
+        "python -m habitat_sim.utils.datasets_download --uids "
+        + " ".join(SOCIAL_NAV_DOWNLOAD_UIDS)
+        + " --data-path data --no-replace"
+    )
 
 
 def build_habitat_overrides(

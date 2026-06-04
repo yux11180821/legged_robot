@@ -51,6 +51,20 @@ AutoDL 上运行：
 ```bash
 cd /root/autodl-tmp/habitat-lab
 
+# 国内网络如果无法访问 HuggingFace，先配置镜像：
+git config --global url."https://hf-mirror.com/".insteadOf "https://huggingface.co/"
+
+# 下载 Habitat-3 social-nav 所需资源。已有文件不会覆盖。
+python -m habitat_sim.utils.datasets_download --uids \
+  hssd-hab hab3-episodes habitat_humanoids hab3_bench_assets hab_spot_arm ycb \
+  --data-path data --no-replace
+
+# 检查资源是否齐全。
+python scripts/check_hab3_social_nav_assets.py --project-dir /root/autodl-tmp/habitat-lab
+
+# 如果镜像仍卡在 cas-bridge.xethub，说明当前节点解析不到 HuggingFace/Xet
+# 的对象存储域名。不要直接开训，先从另一台机器或已有缓存拷贝完整 data。
+
 EXP_NAME=dhrl_social_nav_2algorithms \
 TOTAL_STEPS=2000000 \
 NUM_ENVS=8 \

@@ -27,7 +27,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from unitree_env import ALGORITHMS, build_habitat_overrides
+from unitree_env import (
+    ALGORITHMS,
+    build_habitat_overrides,
+    missing_social_nav_assets,
+    social_nav_download_command,
+    unresolved_social_nav_lfs_pointers,
+)
 
 
 @dataclass(frozen=True)
@@ -119,7 +125,51 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print commands without launching training.",
     )
+    parser.add_argument(
+        "--skip-asset-check",
+        action="store_true",
+        help="Skip the Habitat-3 social-nav asset preflight check.",
+    )
     return parser.parse_args()
+
+
+def check_assets(args: argparse.Namespace) -> None:
+    if args.skip_asset_check:
+        return
+    if "social_nav" not in args.config_name:
+        return
+    project_dir = Path(args.project_dir).resolve()
+    missing = missing_social_nav_assets(project_dir)
+    unresolved = unresolved_social_nav_lfs_pointers(project_dir)
+    if not missing and not unresolved:
+        return
+
+    sections: list[str] = []
+    if missing:
+        sections.append(
+            "Missing files/directories:\n"
+            + "\n".join(f"  - {path}" for path in missing)
+        )
+    if unresolved:
+        sections.append(
+            "Unresolved Git LFS pointer files:\n"
+            + "\n".join(f"  - {path}" for path in unresolved)
+        )
+    raise SystemExit(
+        "Habitat-3 social-nav assets are incomplete:\n"
+        + "\n\n".join(sections)
+        + "\n\n"
+        "Download them on AutoDL with:\n"
+        f"  cd {project_dir}\n"
+        "  source /root/miniconda3/etc/profile.d/conda.sh\n"
+        "  conda activate habitat\n"
+        f"  {social_nav_download_command()}\n\n"
+        "If HuggingFace is blocked, configure a mirror first:\n"
+        "  git config --global url.\"https://hf-mirror.com/\".insteadOf "
+        "\"https://huggingface.co/\"\n"
+        "If the mirror still fails on cas-bridge.xethub, copy the resolved "
+        "Habitat-3 data directory from another machine or dataset cache."
+    )
 
 
 def make_jobs(args: argparse.Namespace) -> list[RunJob]:
@@ -246,6 +296,7 @@ def run_jobs(args: argparse.Namespace, jobs: Iterable[RunJob]) -> None:
 
 def main() -> None:
     args = parse_args()
+    check_assets(args)
     jobs = make_jobs(args)
     run_jobs(args, jobs)
 

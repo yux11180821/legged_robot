@@ -19,6 +19,10 @@ cd "$PROJECT_DIR"
 source "$CONDA_SH"
 conda activate "$CONDA_ENV"
 
+if [ "${SKIP_ASSET_CHECK:-0}" != "1" ]; then
+  python scripts/check_hab3_social_nav_assets.py --project-dir "$PROJECT_DIR"
+fi
+
 python train_ddp.py \
   --project-dir "$PROJECT_DIR" \
   --config-name social_nav/social_nav.yaml \
