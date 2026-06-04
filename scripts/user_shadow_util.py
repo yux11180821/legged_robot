@@ -1,12 +1,16 @@
 import random
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-from typing import List, Dict
+from typing import Any, List, Dict
 import torch
 import pickle
 import glob
 import os
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 def save_results(data, filename):
     """Save data to a pkl file"""
@@ -34,10 +38,12 @@ def set_seed(seed: int) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, any]]],
+def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, Any]]],
                         bin_size: int = 500,
                         title: str = "Algorithm Performance Comparison",
-                        output_filename: str = "algorithm_comparison.png") -> None:
+                        output_filename: str = "algorithm_comparison.png",
+                        ylabel: str = "Episode Reward",
+                        show: bool = False) -> None:
     """
     Plots the learning curves of multiple experiments with mean and standard deviation shading.
 
@@ -51,6 +57,8 @@ def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, any]]],
         bin_size (int, optional): The width of each bin for grouping environment steps. Default is 500.
         title (str, optional): The title of the plot. Default is "Algorithm Performance Comparison".
         output_filename (str, optional): The filename for saving the plot. Default is "algorithm_comparison.png".
+        ylabel (str, optional): Y-axis label. The plotted value is still read from the 'reward' key.
+        show (bool, optional): Whether to display the figure interactively. Default is False for headless AutoDL runs.
 
     Returns:
         None. The function saves the plot as a PNG file and displays it.
@@ -102,7 +110,7 @@ def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, any]]],
     # --- Set final style for the chart ---
     ax.set_title(title, fontsize=18, pad=15)
     ax.set_xlabel('Total Environment Steps', fontsize=14)
-    ax.set_ylabel('Episode Reward', fontsize=14)
+    ax.set_ylabel(ylabel, fontsize=14)
     ax.legend(loc='lower right', fontsize=12)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
@@ -111,7 +119,9 @@ def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, any]]],
     # Save and display the chart
     output_filename = output_filename.replace(" ", "_")
     plt.savefig(output_filename, dpi=300)
-    plt.show()
+    if show:
+        plt.show()
+    plt.close(fig)
     print(f"\n--- Comparison chart saved as {output_filename} ---")
 
 def visualize_benchmark(results_dir, env_name):
