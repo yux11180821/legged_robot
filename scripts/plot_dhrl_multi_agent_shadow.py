@@ -117,6 +117,17 @@ def parse_args() -> argparse.Namespace:
         "--output-name",
         default=None,
     )
+    parser.add_argument(
+        "--raw-x",
+        action="store_true",
+        help="Use raw environment steps instead of normalized paper-style x-axis.",
+    )
+    parser.add_argument(
+        "--x-max",
+        type=float,
+        default=None,
+        help="Optional denominator for normalized x-axis. Defaults to max observed step.",
+    )
     return parser.parse_args()
 
 
@@ -131,10 +142,12 @@ def main() -> None:
     tag = args.tag or TAGS[args.metric]
     algorithms = [parse_algorithm(item) for item in args.algorithms]
     experiments_data = {}
+    observed_max_step = 0.0
 
     for algorithm, label in algorithms:
         rows = collect_algorithm(tb_root, algorithm, tag)
         experiments_data[label] = rows
+        observed_max_step = max(observed_max_step, max(float(row["steps"]) for row in rows))
         save_results(rows, out_dir / f"{algorithm}_{args.metric}_train_data.pkl")
         print(f"loaded {len(rows)} points for {label}")
 
@@ -148,6 +161,9 @@ def main() -> None:
         title=title,
         output_filename=str(out_dir / output_name),
         ylabel=ylabel,
+        normalize_x=not args.raw_x,
+        x_max=args.x_max or observed_max_step,
+        plot_seed_lines=True,
         show=False,
     )
 

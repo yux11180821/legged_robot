@@ -1,7 +1,7 @@
 import random
 import numpy as np
 import pandas as pd
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 import torch
 import pickle
 import glob
@@ -43,6 +43,9 @@ def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, Any]]],
                         title: str = "Algorithm Performance Comparison",
                         output_filename: str = "algorithm_comparison.png",
                         ylabel: str = "Episode Reward",
+                        normalize_x: bool = False,
+                        x_max: Optional[float] = None,
+                        plot_seed_lines: bool = True,
                         show: bool = False) -> None:
     """
     Plots the learning curves of multiple experiments with mean and standard deviation shading.
@@ -58,6 +61,9 @@ def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, Any]]],
         title (str, optional): The title of the plot. Default is "Algorithm Performance Comparison".
         output_filename (str, optional): The filename for saving the plot. Default is "algorithm_comparison.png".
         ylabel (str, optional): Y-axis label. The plotted value is still read from the 'reward' key.
+        normalize_x (bool, optional): Normalize x-axis into [0, 1], matching paper-style sample-efficiency plots.
+        x_max (float | None, optional): Denominator for x-axis normalization. Defaults to the max observed step.
+        plot_seed_lines (bool, optional): Plot each seed as a faint line behind the mean/shadow curve.
         show (bool, optional): Whether to display the figure interactively. Default is False for headless AutoDL runs.
 
     Returns:
@@ -83,33 +89,74 @@ def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, Any]]],
             print(f"Warning: Data for experiment '{name}' is empty, skipping.")
             continue
 
-        df = pd.DataFrame(data)
+        df = pd.DataFrame(data).dropna(subset=['steps', 'reward', 'seed'])
+        if df.empty:
+            print(f"Warning: Data for experiment '{name}' has no valid rows, skipping.")
+            continue
+        df['steps'] = pd.to_numeric(df['steps'], errors='coerce')
+        df['reward'] = pd.to_numeric(df['reward'], errors='coerce')
+        df = df.dropna(subset=['steps', 'reward'])
+        if df.empty:
+            print(f"Warning: Data for experiment '{name}' has no numeric rows, skipping.")
+            continue
+
         num_seeds = df['seed'].nunique()
         color = colors[i % len(colors)]
 
-        max_steps = df['steps'].max()
+        max_steps = float(x_max) if x_max is not None else float(df['steps'].max())
+        if max_steps <= 0:
+            print(f"Warning: Non-positive max step for experiment '{name}', skipping.")
+            continue
         bins = np.arange(0, max_steps + bin_size, bin_size)
+        if len(bins) < 2:
+            bins = np.array([0, max_steps], dtype=float)
         df['step_bin'] = pd.cut(df['steps'], bins=bins, right=False, labels=bins[:-1])
 
         seed_bin_rewards = df.groupby(['seed', 'step_bin'], observed=True)['reward'].mean().reset_index()
         final_stats = seed_bin_rewards.groupby('step_bin', observed=True)['reward'].agg(['mean', 'std']).reset_index()
+        final_stats['std'] = final_stats['std'].fillna(0.0)
 
         # Fill missing values and drop any remaining NaN (usually at the beginning)
         final_stats = final_stats.ffill().dropna()
+        final_stats['step_bin'] = pd.to_numeric(final_stats['step_bin'], errors='coerce')
+        final_stats = final_stats.dropna(subset=['step_bin'])
+        if final_stats.empty:
+            print(f"Warning: No binned stats for experiment '{name}', skipping.")
+            continue
+
+        def x_values(steps):
+            steps = np.asarray(steps, dtype=float)
+            if normalize_x:
+                return steps / max_steps
+            return steps
 
         # --- Plotting ---
+        if plot_seed_lines:
+            for seed in sorted(seed_bin_rewards['seed'].unique()):
+                seed_stats = seed_bin_rewards[seed_bin_rewards['seed'] == seed].copy()
+                seed_stats['step_bin'] = pd.to_numeric(seed_stats['step_bin'], errors='coerce')
+                seed_stats = seed_stats.dropna(subset=['step_bin', 'reward']).sort_values('step_bin')
+                if seed_stats.empty:
+                    continue
+                ax.plot(x_values(seed_stats['step_bin']),
+                        seed_stats['reward'],
+                        color=color,
+                        linewidth=0.9,
+                        alpha=0.22)
+
         # Plot mean curve
-        ax.plot(final_stats['step_bin'], final_stats['mean'], color=color, linewidth=2.5,
+        xs = x_values(final_stats['step_bin'])
+        ax.plot(xs, final_stats['mean'], color=color, linewidth=2.5,
                 label=f"{name} ({num_seeds} Seeds)")
         # Fill standard deviation shading area
-        ax.fill_between(final_stats['step_bin'],
+        ax.fill_between(xs,
                         final_stats['mean'] - final_stats['std'],
                         final_stats['mean'] + final_stats['std'],
                         color=color, alpha=0.2)
 
     # --- Set final style for the chart ---
     ax.set_title(title, fontsize=18, pad=15)
-    ax.set_xlabel('Total Environment Steps', fontsize=14)
+    ax.set_xlabel('Normalized Training Steps' if normalize_x else 'Total Environment Steps', fontsize=14)
     ax.set_ylabel(ylabel, fontsize=14)
     ax.legend(loc='lower right', fontsize=12)
     plt.xticks(fontsize=12)
