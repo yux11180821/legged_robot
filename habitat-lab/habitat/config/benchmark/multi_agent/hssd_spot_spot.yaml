@@ -1,0 +1,119 @@
+# @package _global_
+# D-HRL reproduction: TWO Spot robots (homogeneous), cooperative navigation.
+#
+# Minimal delta from the known-loading hssd_spot_human.yaml:
+#   * agent_1: human -> spot (PDDL spec multi_agent_tidy_house is robot-generic:
+#     robot_0/robot_1 are `robot_entity_type`, no humanoid assumption);
+#   * both agents use the light depth_head_agent sensor setup (we train on
+#     localization lab-sensors; cameras are not consumed -> faster sim);
+#   * actions: ONLY base_velocity_non_cylinder per agent (holonomic-capable;
+#     the trainer enables lateral movement at runtime);
+#   * task reward/success measures are kept for loadability, but the D-HRL
+#     trainers compute their own task reward in the adapter and read only
+#     num_agents_collide / num_steps from info.
+#
+# Start positions are sampled at runtime with min_distance_start_agents, so the
+# existing 2-agent social_rearrange episodes work unchanged.
+
+defaults:
+  - /habitat: habitat_config_base
+  - /habitat/task: task_config_base
+
+  - /habitat/simulator/sensor_setups@habitat.simulator.agents.agent_0: depth_head_agent
+  - /habitat/simulator/agents@habitat.simulator.agents.agent_0: spot
+
+  - /habitat/simulator/sensor_setups@habitat.simulator.agents.agent_1: depth_head_agent
+  - /habitat/simulator/agents@habitat.simulator.agents.agent_1: spot
+
+  - /habitat/dataset/rearrangement: hssd
+
+  - /habitat/task/actions@habitat.task.actions.agent_0_base_velocity: base_velocity_non_cylinder
+  - /habitat/task/actions@habitat.task.actions.agent_1_base_velocity: base_velocity_non_cylinder
+
+  - /habitat/task/measurements:
+    - pddl_success
+    - num_steps
+    - did_agents_collide
+    - num_agents_collide
+    - composite_stage_goals
+    - pddl_subgoal_reward
+    - rearrange_cooperate_reward
+  - /habitat/task/lab_sensors:
+    - localization_sensor
+  - _self_
+
+habitat:
+  task:
+    type: RearrangePddlTask-v0
+    reward_measure: rearrange_cooperate_reward
+    success_measure: pddl_success
+    success_reward: 10.0
+    min_distance_start_agents: 5.0
+    slack_reward: -0.0005
+    end_on_success: False
+    constraint_violation_ends_episode: False
+    constraint_violation_drops_object: True
+    measurements:
+      pddl_success:
+        must_call_stop: False
+      rearrange_cooperate_reward:
+        stage_sparse_reward: 5.0
+        # Collisions must NOT end the episode: the D-HRL adapter penalizes them
+        # in its own team reward and controls episode endings itself.
+        end_on_collide: False
+        collide_penalty: 0.5
+    task_spec_base_path: benchmark/multi_agent/
+    task_spec: pddl/multi_agent_tidy_house
+    pddl_domain_def: fp
+    actions:
+      agent_0_base_velocity:
+        lin_speed: 10.0
+        longitudinal_lin_speed: 10.0
+        lateral_lin_speed: 10.0
+        ang_speed: 10.0
+        allow_dyn_slide: True
+        enable_lateral_move: False  # trainer overrides to True (holonomic)
+        collision_threshold: 1e-5
+        enable_rotation_check_for_dyn_slide: False
+      agent_1_base_velocity:
+        lin_speed: 10.0
+        longitudinal_lin_speed: 10.0
+        lateral_lin_speed: 10.0
+        ang_speed: 10.0
+        allow_dyn_slide: True
+        enable_lateral_move: False  # trainer overrides to True (holonomic)
+        collision_threshold: 1e-5
+        enable_rotation_check_for_dyn_slide: False
+  gym:
+    obs_keys:
+      - agent_0_localization_sensor
+      - agent_1_localization_sensor
+  environment:
+    max_episode_steps: 500
+  simulator:
+    type: RearrangeSim-v0
+    seed: 100
+    additional_object_paths:
+      - "data/objects/ycb/configs/"
+      - "data/objects/amazon_berkeley/configs/"
+      - "data/objects/google_object_dataset/configs/"
+    concur_render: True
+    auto_sleep: True
+    agents_order:
+      - agent_0
+      - agent_1
+
+    kinematic_mode: True
+    ac_freq_ratio: 1
+    step_physics: False
+
+    habitat_sim_v0:
+      allow_sliding: True
+      enable_physics: True
+    agents:
+      agent_0:
+        joint_start_noise: 0.0
+      agent_1:
+        joint_start_noise: 0.0
+  dataset:
+    data_path: data/datasets/hssd/rearrange/{split}/social_rearrange.json.gz

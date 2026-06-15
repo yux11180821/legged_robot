@@ -439,6 +439,36 @@ class HabitatSim(habitat_sim.Simulator, Simulator):
         return self._sensor_suite
 
     @property
+    def sensors(self):
+        """Expose habitat-sim sensor objects for articulated-agent helpers.
+
+        Some Habitat-3 articulated-agent code iterates over ``sim.sensors``
+        while the Python wrapper stores the public sensor metadata in
+        ``sensor_suite``.  The C++ simulator still owns the actual sensor
+        objects, so this compatibility property keeps multi-agent robot
+        initialization on the Habitat-3 path.
+        """
+        return self._sensors
+
+    def get_sensor(self, uuid: str):
+        """Return a sensor object compatible with Habitat-3 helpers."""
+        sensor = self._sensors[uuid]
+        if hasattr(sensor, "sensor_object"):
+            return sensor
+
+        class _SensorObjectAdapter:
+            def __init__(self, sensor_obj):
+                self._sensor_obj = sensor_obj
+                self.sensor_object = getattr(
+                    sensor_obj, "_sensor_object", sensor_obj
+                )
+
+            def __getattr__(self, name):
+                return getattr(self._sensor_obj, name)
+
+        return _SensorObjectAdapter(sensor)
+
+    @property
     def action_space(self) -> Space:
         return self._action_space
 

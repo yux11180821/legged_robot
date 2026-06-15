@@ -589,6 +589,15 @@ def get_obj_from_handle(
     rom = sim.get_rigid_object_manager()
     if rom.get_library_has_handle(obj_handle):
         return rom.get_object_by_handle(obj_handle)
+    if hasattr(sim, "_handle_to_object_id") and hasattr(sim, "_scene_obj_ids"):
+        handle_to_object_id = getattr(sim, "_handle_to_object_id")
+        scene_obj_ids = getattr(sim, "_scene_obj_ids")
+        if obj_handle in handle_to_object_id:
+            rel_idx = handle_to_object_id[obj_handle]
+            if 0 <= rel_idx < len(scene_obj_ids):
+                obj = rom.get_object_by_id(scene_obj_ids[rel_idx])
+                if obj is not None:
+                    return obj
     aom = sim.get_articulated_object_manager()
     if aom.get_library_has_handle(obj_handle):
         return aom.get_object_by_handle(obj_handle)
