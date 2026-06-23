@@ -1,206 +1,100 @@
-# Habitat-Lab PPO / Zero-Shot 复现实验
+# 在 Habitat 复现 D-HRL（分层多智能体协同运动）
 
-这个仓库以 AutoDL 上的 `/root/autodl-tmp/habitat-lab` 工作目录为准整理，基于 Habitat-Lab / Habitat-Baselines 0.3.3。当前重点是复现论文 **Learning a Distributed Hierarchical Locomotion Controller for Embodied Cooperation** 的多智能体 D-HRL 思路，并保留 PointNav PPO / zero-shot 曲线相关脚本作为早期实验工具。
+复现论文 **Learning a Distributed Hierarchical Locomotion Controller for Embodied Cooperation**（arXiv:2407.06499）的分层思路。
 
-当前 GitHub 仓库只保存代码、配置、脚本和小规模测试数据。训练 checkpoint、TensorBoard、日志、视频和大型多智能体资源不放进 Git；这些文件应继续放在 AutoDL 机器的 `data/`、`logs/`、`outputs/`、`tb/`、`video_dir/` 等目录下。
+设计要点：**全程在 Habitat（ReplicaCAD，2 台 Spot）完成，不脱离平台，下层不使用分布式**。基于 Habitat-Lab / Habitat-Sim 0.3.3。复现代码在 [`dhrl_habitat/`](dhrl_habitat)，底层修过 bug 的 PPO 核心在 [`habitat_commander/`](habitat_commander)。checkpoint / 大型数据 / 视频不进 Git。
 
-## 仓库内容
+## 两阶段复现流程
 
-- `habitat-lab/`：Habitat-Lab 源码。
-- `habitat-baselines/`：PPO / DDPPO / HRL / multi-agent baseline 源码。
-- `habitat-hitl/`：Habitat HITL 相关代码。
-- `scripts/run_zero_shot_curve_train_4seeds.sh`：4 个随机种子并行训练 PPO 曲线。
-- `scripts/run_zero_shot_eval_curve.sh`：按 checkpoint 在 held-out scene 上做 zero-shot 评估。
-- `scripts/plot_zero_shot_eval_curve.py`：画 faint seed lines + mean shadow 的论文风格阴影图。
-- `train_ddp.py`：Habitat multi-agent D-HRL / no-memory 双算法多 seed launcher。
-- `unitree_env.py`：多智能体算法规格和 Hydra override 构造器，旧文件名仅为兼容保留。
-- `unitree_nav.yaml`：D-HRL multi-agent 实验配置说明，已经不再是单智能体 Unitree 导航配置。
-- `scripts/run_dhrl_multi_agent_2algorithms_4seeds.sh`：一键跑 D-HRL 和 no-memory 两个算法，各 4 个 seed。
-- `scripts/plot_dhrl_multi_agent_shadow.py`：直接调用 `scripts/user_shadow_util.py::plot_learning_curve` 画两个算法的阴影图。
-- `scripts/make_pointnav_heldout_dataset.py`：从 Habitat test scenes 构造 train/test held-out split。
-- `scripts/run_zero_shot_replay_videos.sh`：导出 checkpoint 回放视频。
-- `data/datasets/pointnav/`、`data/scene_datasets/habitat-test-scenes/`：小规模 PointNav 测试数据，方便复现实验脚本。
+**阶段 1 — 下层：单智能体 PPO 点到点导航（训完冻结）**
+用单智能体 PPO 输出**一个 Spot** 的 base 速度（holonomic），学习导航到目标点；**同一时间只训这一个 Spot**，其余 Spot 用**规则**（NavMesh 航点 → 速度）走到各自目标，充当移动障碍。
+奖励 = 测地距离进度 + 到达奖励 − 碰撞 − 邻近 − 时间惩罚。到达 = 真终止，超时 = 截断（bootstrap V(终态)）。训完冻结。
 
-## 关键修改
+**阶段 2 — 上层：MAPPO 输出"给下层的命令"**
+在**冻结**的下层之上，用多智能体 MAPPO（共享 actor + 中心 critic，CTDE）训练协调规划。
+上层命令是一个**虚拟目标点（ego 方向"胡萝卜"）**，喂给冻结下层 → base 速度。任务 = swap 走廊互让（每台机器人去对方起点，强制穿越，涌现避让/绕行）。
 
-- `habitat-baselines/habitat_baselines/rl/models/rnn_state_encoder.py`
-  - 增加 `rnn_type=NONE` 的 no-memory state encoder，用于无循环记忆 baseline。
-- `habitat-baselines/habitat_baselines/rl/ppo/ppo_trainer.py`
-  - 兼容 PyTorch 2.6 的 checkpoint 加载。
-  - checkpoint 改成固定 frame interval 保存。
-  - 强制保存真正的 `final.pth`，避免最后一个 checkpoint 丢失。
-- 绘图脚本支持横坐标归一化到 `[0, 1]`，并同时显示单 seed 细线、均值曲线和标准差阴影。
-
-## D-HRL 多智能体复现
-
-论文的核心设置是多智能体 CTDE + 分布式三层 HRL，不是单智能体 Unitree Gym wrapper。本仓库现在使用 Habitat 0.3.3 自带的 multi-agent social navigation 配置作为复现入口：
-
-```text
-social_nav/social_nav.yaml
-MultiAgentAccessMgr
-HRLPPO / HRLDDPPO
+```
+观测 e_t → 上层 MAPPO actor → 命令(虚拟 goal_ego) ┐
+                                                   ├→ 冻结下层导航策略 → base 速度 → Habitat
+                          当前邻居相对位置 ─────────┘
 ```
 
-默认比较两个算法：
+## 关键文件
 
-- `dhrl`：Distributed HRL，使用 LSTM recurrent memory。
-- `no_memory`：同一套 multi-agent HRL 设置，但将 recurrent state encoder 改为 `rnn_type=NONE`，对应论文 Fig. 5 / Table 1 的 no spatiotemporal memory 消融。
+`dhrl_habitat/`
+- `lower_nav_env.py` — 下层环境适配器（agent_0 学习导航，agent_1 脚本走）
+- `lower_nav_train.py` — 下层单智能体 PPO 训练
+- `upper_mappo_train.py` — 上层 MAPPO 训练（加载冻结下层）
+- `multi_env.py` — 多机器人适配器（swap / shared / random 目标模式，团队奖励）
+- `marl_ppo.py` — MAPPO 核心（共享 actor + 中心 critic + 截断 GAE + KL 早停）
+- `layers.py` — DHRLActor / FlatActor / CentralCritic / 下层算子，算法注册表
+- `geometry.py` · `habitat_io.py` — ego 变换、测地距离、NavMesh 航点
+- `make_replica_cad_episodes.py` — ReplicaCAD 导航 episode 生成
+- `plot_curves.py` — 论文风格阴影曲线 + 单步推理耗时表
 
-AutoDL 上运行：
+`habitat_commander/` — 修过 bug 的单智能体 PPO 核心（TanhNormal 动作落在 (-1,1)、截断感知 GAE、指标采集），下层复用。
+
+配置：`habitat-lab/habitat/config/benchmark/multi_agent/replica_cad_spot_spot.yaml`（2×Spot，`base_velocity_non_cylinder`，`RearrangeEmptyTask`）。
+
+## 运行
+
+环境（已在 AutoDL 的 `habitat` conda 环境验证；需要 Habitat 0.3.3 + ReplicaCAD/Spot 资产 + 仓库内的 habitat_simulator 兼容补丁）：
 
 ```bash
-cd /root/autodl-tmp/habitat-lab
-
-# 国内网络如果无法访问 HuggingFace，先配置镜像：
-git config --global url."https://hf-mirror.com/".insteadOf "https://huggingface.co/"
-
-# 下载 Habitat-3 social-nav 所需资源。已有文件不会覆盖。
-python -m habitat_sim.utils.datasets_download --uids \
-  hssd-hab hab3-episodes habitat_humanoids hab3_bench_assets hab_spot_arm ycb \
-  --data-path data --no-replace
-
-# 检查资源是否齐全。
-python scripts/check_hab3_social_nav_assets.py --project-dir /root/autodl-tmp/habitat-lab
-
-# 如果镜像仍卡在 cas-bridge.xethub，说明当前节点解析不到 HuggingFace/Xet
-# 的对象存储域名。不要直接开训，先从另一台机器或已有缓存拷贝完整 data。
-
-EXP_NAME=dhrl_social_nav_2algorithms \
-TOTAL_STEPS=2000000 \
-NUM_ENVS=8 \
-CKPT_INTERVAL_FRAMES=100000 \
-SEEDS="100 200 300 400" \
-GPUS="0" \
-MAX_PARALLEL=1 \
-bash scripts/run_dhrl_multi_agent_2algorithms_4seeds.sh
+source /root/miniconda3/etc/profile.d/conda.sh && conda activate habitat
+export PROJECT_DIR=$(pwd)
+# 生成导航 episodes（产出 data/datasets/replica_cad_nav/{split}/nav_episodes.json.gz）
+python dhrl_habitat/make_replica_cad_episodes.py
 ```
 
-脚本会生成：
-
-- `tb/dhrl_social_nav_2algorithms/dhrl/seed_*`
-- `tb/dhrl_social_nav_2algorithms/no_memory/seed_*`
-- `data/checkpoints/dhrl_social_nav_2algorithms/{dhrl,no_memory}/seed_*`
-- `results/dhrl_social_nav_2algorithms/dhrl_multi_agent_reward_shadow.png`
-
-单独重画阴影图：
+**阶段 1 — 训下层（单 seed）：**
 
 ```bash
-python scripts/plot_dhrl_multi_agent_shadow.py \
-  --tb-root tb/dhrl_social_nav_2algorithms \
-  --out-dir results/dhrl_social_nav_2algorithms \
-  --metric reward \
-  --bin-size 100000
+python dhrl_habitat/lower_nav_train.py --num-envs 4 --total-steps 300000 --seed 100
+# 冒烟自检： python dhrl_habitat/lower_nav_train.py --smoke
+# 产物： results/lower_nav/lower_nav_seed_100_metrics.csv
+#        data/checkpoints/lower_nav/lower_nav_seed_100_final.pt   ← 冻结下层
 ```
 
-这个绘图脚本会把 TensorBoard 标量转成 `scripts/user_shadow_util.py` 需要的 `{steps, reward, seed}` 格式，并直接调用你给的 `plot_learning_curve` 画两个算法的均值/标准差阴影图。
-
-## AutoDL 运行环境
-
-推荐在 AutoDL 上使用已有环境：
+**阶段 2 — 训上层 MAPPO（加载冻结下层）：**
 
 ```bash
-cd /root/autodl-tmp/habitat-lab
-source /root/miniconda3/etc/profile.d/conda.sh
-conda activate habitat
-python -c "import habitat, habitat_baselines; print(habitat.__version__, habitat_baselines.__version__)"
+python dhrl_habitat/upper_mappo_train.py --algorithm dhrl --seed 100 \
+  --lower-ckpt data/checkpoints/lower_nav/lower_nav_seed_100_final.pt \
+  --num-envs 4 --total-steps 500000 --goal-mode swap
+# 消融（论文 Fig.5 / Table 1）： --algorithm no_memory | no_hierarchy
+# 产物： results/upper_mappo/dhrl_seed_100_metrics.csv
 ```
 
-当前实验按 Habitat 0.3.3 整理。大型资源不随 GitHub 同步，需要在 AutoDL 本地准备，例如 humanoid / robot / object 资产、预训练策略、训练 checkpoint 等。
-
-## 训练 4 个随机种子
-
-默认脚本会跑 4 个 seed：`100 200 300 400`。可以通过环境变量改训练步数、checkpoint 间隔和实验名。
+**4-seed 一键流水线 + 阴影图：**
 
 ```bash
-cd /root/autodl-tmp/habitat-lab
-
-EXP_NAME=rlvigen_pointnav_zeroshot_curve_1m_dense20k \
-TOTAL_STEPS=1000000 \
-CKPT_INTERVAL_FRAMES=20000 \
-NUM_ENVS=4 \
-SEEDS="100 200 300 400" \
-bash scripts/run_zero_shot_curve_train_4seeds.sh
+bash scripts/run_4seed_pipeline.sh   # 4 seed：下层 → 冻结 → 上层 → 出图
+bash scripts/run_4seed_upper.sh      # 只重跑上层（复用已冻结的 4 个下层）
 ```
 
-输出目录：
-
-- checkpoint：`data/checkpoints/${EXP_NAME}/seed_${SEED}/`
-- 日志：`logs/${EXP_NAME}/`
-- TensorBoard：`tb/${EXP_NAME}/`
-
-## Zero-Shot 评估
-
-训练完成后，对每个 checkpoint 在 held-out test split 上评估：
+**单独出阴影曲线 + 推理耗时表：**
 
 ```bash
-cd /root/autodl-tmp/habitat-lab
-
-EXP_NAME=rlvigen_pointnav_zeroshot_curve_1m_dense20k \
-EVAL_NAME=rlvigen_pointnav_zeroshot_curve_1m_dense20k_eval_vangogh_test_150ep \
-TEST_EPISODES=150 \
-EVAL_SPLIT=test \
-SEEDS="100 200 300 400" \
-bash scripts/run_zero_shot_eval_curve.sh
+python dhrl_habitat/plot_curves.py --results-dir results/upper_mappo \
+  --algorithms dhrl --metric success_rate --raw-x
+python dhrl_habitat/plot_curves.py --results-dir results/lower_nav \
+  --algorithms lower_nav --metric reward --raw-x
 ```
 
-评估日志会写到：
+## 结果（ReplicaCAD，2 Spot）
 
-```text
-logs/${EVAL_NAME}/
-```
+- **下层**：导航成功率 ~0.74（收敛冻结），单步推理 ~1.0 ms。
+- **上层 MAPPO（swap）**：成功率峰值 ~0.66，多 seed 均值 ~0.5；全层级单步推理 ~1.0 ms（对比慢速 VLM 控制器的效率卖点）。
+- 曲线在 `results/lower_nav/*.png`、`results/upper_mappo/*.png`。
 
-## 绘制论文风格阴影图
+## 下一步
 
-横坐标可使用真实 frame，也可以归一化到 `[0, 1]`。论文图里常见的是 normalized training steps：
+`mujoco_leg_marl/` — 把这套分层 MARL 迁移到**一台轮足机器人的四条腿**（4 条腿 = 4 个智能体，per-leg 分布式）。这是我们自己的方法、下一步的工作（尚未完成）。
 
-```bash
-cd /root/autodl-tmp/habitat-lab
+## 不进 Git 的文件
 
-python scripts/plot_zero_shot_eval_curve.py \
-  --log-dir logs/rlvigen_pointnav_zeroshot_curve_1m_dense20k_eval_vangogh_test_150ep \
-  --checkpoint-root data/checkpoints/rlvigen_pointnav_zeroshot_curve_1m_dense20k \
-  --out-dir results/rlvigen_pointnav_zeroshot_curve_1m_dense20k_eval_vangogh_test_150ep_paper \
-  --seeds 100 200 300 400 \
-  --x-axis normalized \
-  --total-steps 1000000
-```
+checkpoint、大型数据/资产、日志、TensorBoard、视频均不提交（见 `.gitignore`：`data/checkpoints/`、`logs/`、`tb/`、`*.pt` 等），放在训练机本地。
 
-输出包括：
-
-- `zero_shot_eval_shadow_curve.png`
-- `zero_shot_eval_raw.csv`
-- `zero_shot_eval_summary.csv`
-
-## 视频回放
-
-如果需要看训练后策略的视频，使用：
-
-```bash
-cd /root/autodl-tmp/habitat-lab
-
-EXP_NAME=rlvigen_pointnav_zeroshot_curve_1m_dense20k \
-SEEDS="100 200 300 400" \
-bash scripts/run_zero_shot_replay_videos.sh
-```
-
-视频输出在：
-
-```text
-video_dir/
-```
-
-## 不进入 Git 的文件
-
-以下文件或目录体积大，默认不提交：
-
-- `data/checkpoints/`
-- `data/humanoids/`
-- `data/objects/`
-- `data/robots/`
-- `logs/`
-- `outputs/`
-- `tb/`
-- `video_dir/`
-- `*.pth`、`*.pt`、`*.ckpt`、`*.onnx`、`*.mp4`
-
-如需同步大型资源，建议使用 AutoDL 云盘、对象存储或 Git LFS，不建议直接塞进普通 Git 仓库。
+> 仓库还保留少量早期 PointNav / social-nav 实验脚本（`train_ddp.py`、`unitree_env.py`、`scripts/run_zero_shot_*`、`scripts/plot_zero_shot_*` 等）作为历史工具，与上面的复现流程相互独立。
