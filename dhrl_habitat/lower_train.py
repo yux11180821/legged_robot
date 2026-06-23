@@ -42,7 +42,7 @@ from dhrl_habitat.lower_env import LowerTrainAdapter  # noqa: E402
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Stage-1 lower operator training.")
-    p.add_argument("--config-name", default="benchmark/multi_agent/hssd_spot_spot.yaml")
+    p.add_argument("--config-name", default="benchmark/multi_agent/replica_cad_spot_spot.yaml")
     p.add_argument("--exp-name", default="dhrl_repro")
     p.add_argument("--project-dir", default=os.environ.get("PROJECT_DIR", str(Path.cwd())))
     p.add_argument("--mode", choices=["position", "velocity"], default="velocity")

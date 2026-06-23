@@ -48,6 +48,7 @@ class MultiRobotNavAdapter:
         proximity_penalty: float = 0.05,
         proximity_dist: float = 0.8,
         slack: float = 0.005,
+        geo_every: int = 1,
     ):
         assert goal_mode in ("swap", "shared", "random")
         self.env = gym_env
@@ -75,6 +76,9 @@ class MultiRobotNavAdapter:
         self._prev_coll_count = 0.0
         self._last_commands = np.zeros((n_agents, COMMAND_DIM), dtype=np.float32)
         self._base_height = 0.0
+        self.geo_every = max(1, int(geo_every))
+        self._step_count = 0
+        self._cached_geo: np.ndarray | None = None
 
     # ------------------------------------------------------------------ #
     def _ensure_sim(self):

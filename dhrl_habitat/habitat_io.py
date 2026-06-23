@@ -22,8 +22,15 @@ def make_dhrl_env(
     max_episode_steps: int,
     action_keys: list[str],
     enable_lateral: bool = True,
+    strip_render: bool = False,
 ):
-    """Build the gym env, restrict actions to ``action_keys``, force holonomic."""
+    """Build the gym env, restrict actions to ``action_keys``, force holonomic.
+
+    ``strip_render=True`` clears every agent's sim_sensors (the depth cameras),
+    so the simulator does NO per-step GPU rendering.  Our obs is localization-
+    only (a state lab_sensor, not rendered), so this is lossless for training but
+    removes the GPU-render contention that dominates when many envs run at once.
+    """
     import habitat
     from habitat.config import read_write
     from habitat.gym import make_gym_from_config
@@ -41,6 +48,9 @@ def make_dhrl_env(
                 action_cfg = cfg.habitat.task.actions.get(key, None)
                 if action_cfg is not None and hasattr(action_cfg, "enable_lateral_move"):
                     action_cfg.enable_lateral_move = True
+        if strip_render:
+            for ag in list(cfg.habitat.simulator.agents.keys()):
+                cfg.habitat.simulator.agents[ag].sim_sensors = {}
     return make_gym_from_config(cfg)
 
 

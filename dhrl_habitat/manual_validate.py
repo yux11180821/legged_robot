@@ -39,7 +39,7 @@ from dhrl_habitat.multi_env import MultiRobotNavAdapter  # noqa: E402
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Manual-command validation of the frozen operator.")
-    p.add_argument("--config-name", default="benchmark/multi_agent/hssd_spot_spot.yaml")
+    p.add_argument("--config-name", default="benchmark/multi_agent/replica_cad_spot_spot.yaml")
     p.add_argument("--project-dir", default=os.environ.get("PROJECT_DIR", str(Path.cwd())))
     p.add_argument("--lower-ckpt", required=True)
     p.add_argument("--n-agents", type=int, default=2)

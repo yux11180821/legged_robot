@@ -107,7 +107,7 @@ def plot_learning_curve(experiments_data: Dict[str, List[Dict[str, Any]]],
         if max_steps <= 0:
             print(f"Warning: Non-positive max step for experiment '{name}', skipping.")
             continue
-        bins = np.arange(0, max_steps + bin_size, bin_size)
+        bins = np.arange(0, max_steps + bin_size + 1e-9, bin_size)
         if len(bins) < 2:
             bins = np.array([0, max_steps], dtype=float)
         df['step_bin'] = pd.cut(df['steps'], bins=bins, right=False, labels=bins[:-1])

@@ -68,6 +68,7 @@ def marl_ppo_update(
     max_grad_norm: float = 0.5,
     ppo_epochs: int = 4,
     num_minibatches: int = 4,
+    target_kl: float | None = 0.02,
 ) -> dict[str, float]:
     """Clipped-PPO update over actor (per-agent samples) + centralized critic.
 
@@ -80,8 +81,11 @@ def marl_ppo_update(
     E = batch.critic_obs.shape[0]
     k = max(1, num_minibatches)
     stats: dict[str, list[float]] = {"policy_loss": [], "value_loss": [], "entropy": [], "approx_kl": []}
+    stop_early = False  # KL early-stop guard against destructive late updates
 
     for _ in range(ppo_epochs):
+        if stop_early:
+            break
         # torch.chunk keeps remainder samples (no silent drop when S % k != 0)
         chunks_s = torch.chunk(torch.randperm(S, device=batch.actor_obs.device), k)
         chunks_e = torch.chunk(torch.randperm(E, device=batch.critic_obs.device), k)
@@ -116,6 +120,10 @@ def marl_ppo_update(
             stats["policy_loss"].append(float(policy_loss.detach().cpu()))
             stats["value_loss"].append(float(value_loss.detach().cpu()))
             stats["entropy"].append(float(entropy_loss.detach().cpu()))
-            stats["approx_kl"].append(float(approx_kl.detach().cpu()))
+            kl = float(approx_kl.detach().cpu())
+            stats["approx_kl"].append(kl)
+            if target_kl is not None and kl > target_kl:
+                stop_early = True  # this update moved the policy too far; stop further epochs
+                break
 
     return {key: float(np.mean(vals)) for key, vals in stats.items()}

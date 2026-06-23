@@ -1,13 +1,9 @@
-"""Multi-agent Habitat experiment definitions for the D-HRL reproduction.
+"""Habitat-3 social-navigation definitions for the D-HRL reproduction.
 
-The paper is not a single-agent Unitree navigation problem.  This module keeps
-the old filename only for compatibility with earlier scripts, but the content is
-now explicitly multi-agent:
-
-* Habitat task/config: social_nav/social_nav.yaml
-* Access manager: MultiAgentAccessMgr
-* Updater: HRLPPO / HRLDDPPO
-* Algorithms: D-HRL with recurrent memory vs no spatiotemporal memory
+The filename is kept for compatibility with earlier scripts.  The content here
+is not a Unitree single-agent environment: it describes the two-agent
+Habitat-3 Spot + humanoid social-nav setup used by the custom PPO runner in
+``train_ddp.py``.
 """
 
 from __future__ import annotations
@@ -19,26 +15,25 @@ from pathlib import Path
 @dataclass(frozen=True)
 class AlgorithmSpec:
     label: str
-    rnn_type: str
+    use_memory: bool
     description: str
-    extra_overrides: tuple[str, ...] = ()
 
 
 ALGORITHMS: dict[str, AlgorithmSpec] = {
     "dhrl": AlgorithmSpec(
         label="Distributed HRL (RNN memory)",
-        rnn_type="LSTM",
+        use_memory=True,
         description=(
-            "Multi-agent HRL with recurrent spatiotemporal memory. "
-            "This is the paper-aligned D-HRL condition."
+            "Custom multi-agent PPO with centralized critic, per-agent action "
+            "heads, and recurrent spatiotemporal memory."
         ),
     ),
     "no_memory": AlgorithmSpec(
         label="No Spatiotemporal Memory",
-        rnn_type="NONE",
+        use_memory=False,
         description=(
-            "Same multi-agent HRL setup, but the recurrent state encoder is "
-            "replaced by an MLP. This matches the paper's no-memory ablation."
+            "Same Habitat-3 two-agent PPO setup, with the recurrent memory "
+            "removed for the paper's no-memory ablation."
         ),
     ),
 }
@@ -46,6 +41,8 @@ ALGORITHMS: dict[str, AlgorithmSpec] = {
 
 REQUIRED_SOCIAL_NAV_ASSETS: tuple[str, ...] = (
     "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json",
+    "data/scene_datasets/hssd-hab/semantics/hssd-hab_semantic_lexicon.json",
+    "data/scene_datasets/hssd-hab/scene_filter_files/105515448_173104512.rec_filter.json",
     "data/scene_datasets/hssd-hab/stages/102343992.glb",
     "data/scene_datasets/hssd-hab/objects/0/0001fb06b075a743e6289236cf049df3ad5dfa9c.glb",
     "data/datasets/hssd/rearrange/train/social_rearrange.json.gz",
@@ -81,8 +78,16 @@ LFS_POINTER_SCAN_ROOTS: tuple[str, ...] = (
 GIT_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 
 
-def quote_path(path: Path) -> str:
-    return "'" + str(path).replace("'", "'\\''") + "'"
+def resolve_habitat_config_name(config_name: str) -> str:
+    """Map the old baselines social-nav config to the Habitat-Lab env config."""
+    normalized = config_name.strip()
+    if normalized in {
+        "social_nav/social_nav",
+        "social_nav/social_nav.yaml",
+        "habitat-baselines/habitat_baselines/config/social_nav/social_nav.yaml",
+    }:
+        return "benchmark/multi_agent/hssd_spot_human_social_nav.yaml"
+    return normalized
 
 
 def missing_social_nav_assets(project_dir: Path) -> list[Path]:
@@ -132,43 +137,3 @@ def social_nav_download_command() -> str:
         + " ".join(SOCIAL_NAV_DOWNLOAD_UIDS)
         + " --data-path data --no-replace"
     )
-
-
-def build_habitat_overrides(
-    *,
-    algorithm: str,
-    seed: int,
-    total_steps: int,
-    num_envs: int,
-    tensorboard_dir: Path,
-    checkpoint_dir: Path,
-    num_checkpoints: int,
-    log_interval: int,
-) -> list[str]:
-    """Build Hydra overrides for a multi-agent Habitat-Baselines run."""
-    if algorithm not in ALGORITHMS:
-        raise KeyError(f"Unknown algorithm '{algorithm}'. Available: {sorted(ALGORITHMS)}")
-
-    spec = ALGORITHMS[algorithm]
-    overrides = [
-        f"habitat.seed={seed}",
-        f"habitat.simulator.seed={seed}",
-        "habitat_baselines.evaluate=False",
-        "habitat_baselines.trainer_name=ddppo",
-        "habitat_baselines.updater_name=HRLPPO",
-        "habitat_baselines.distrib_updater_name=HRLDDPPO",
-        "habitat_baselines.rollout_storage_name=HrlRolloutStorage",
-        "habitat_baselines.rl.agent.type=MultiAgentAccessMgr",
-        "habitat_baselines.rl.agent.num_agent_types=2",
-        "habitat_baselines.rl.agent.num_active_agents_per_type=[1,1]",
-        "habitat_baselines.rl.agent.num_pool_agents_per_type=[1,1]",
-        f"habitat_baselines.rl.ddppo.rnn_type={spec.rnn_type}",
-        f"habitat_baselines.total_num_steps={total_steps}",
-        f"habitat_baselines.num_environments={num_envs}",
-        f"habitat_baselines.num_checkpoints={num_checkpoints}",
-        f"habitat_baselines.log_interval={log_interval}",
-        f"habitat_baselines.tensorboard_dir={quote_path(tensorboard_dir)}",
-        f"habitat_baselines.checkpoint_folder={quote_path(checkpoint_dir)}",
-    ]
-    overrides.extend(spec.extra_overrides)
-    return overrides

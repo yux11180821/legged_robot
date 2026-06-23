@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 # Copyright (c) 2024-2026.
 # SPDX-License-Identifier: BSD-3-Clause
-"""Paper-style shadow curves from stage CSVs (mean ± std across seeds).
+"""Paper-style shadow curves for the D-HRL reproduction.
 
-Reads the metrics CSVs written by the trainers
-(results/<exp>/<algorithm>_seed_<seed>_metrics.csv with columns
- env_steps, reward, ... from habitat_commander.metrics.StepLogger) and plots
-one curve per algorithm with a std shadow, matching the paper's Fig.4/5 style.
+Uses the user's OWN shadow plotter (scripts/user_shadow_util.py
+:func:`plot_learning_curve` -- mean +/- std band + per-seed faint traces +
+normalized paper-style x-axis) so these figures match every other figure in the
+project.  It just adapts the dhrl_habitat metrics CSVs (written every --log-every
+env steps by habitat_commander.metrics.StepLogger) into that function's
+``experiments_data`` format.
 
     python dhrl_habitat/plot_curves.py --results-dir results/dhrl_repro \
         --algorithms dhrl no_memory no_hierarchy --metric reward
+    python dhrl_habitat/plot_curves.py --results-dir results/dhrl_repro \
+        --algorithms dhrl no_memory no_hierarchy --metric success_rate
 
-Also prints a final-window summary table (mean ± std of the last 10% of steps)
-to compare against the original paper's curves, and the inference-time stats.
+Also prints the single-step inference-time table (推理一步耗时) -- the efficiency
+metric for the reviewer rebuttal.
 """
 
 from __future__ import annotations
@@ -21,124 +25,114 @@ import argparse
 import csv
 import glob
 import os
-import re
-from collections import defaultdict
+import sys
+from pathlib import Path
 
 import numpy as np
 
-import matplotlib
+# Use the project's own shadow-plot utility (keeps figure style consistent).
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO_ROOT / "scripts"))
+from user_shadow_util import plot_learning_curve  # noqa: E402
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+# Paper labels (Fig.5 / Table 1).
+LABELS = {
+    "dhrl": "Distributed HRL",
+    "no_memory": "No Spatiotemporal Memory",
+    "no_hierarchy": "No Hierarchy",
+}
 
-COLORS = ["orange", "forestgreen", "crimson", "dodgerblue", "darkviolet", "gold"]
 
+def load_rows(results_dir: str, algorithm: str, metric: str) -> list[dict]:
+    """metrics CSV(s) -> [{'steps', 'reward', 'seed'}] for plot_learning_curve.
 
-def load_runs(results_dir: str, algorithm: str, metric: str):
-    """-> list of (steps[np], values[np]) per seed."""
-    pattern = os.path.join(results_dir, f"{algorithm}_seed_*_metrics.csv")
-    runs = []
-    for path in sorted(glob.glob(pattern)):
-        steps, vals = [], []
+    The metric's value is placed under the 'reward' key because
+    plot_learning_curve always reads that key (its ylabel arg sets the display
+    label).  seed is parsed from the filename.
+    """
+    rows: list[dict] = []
+    for path in sorted(glob.glob(os.path.join(results_dir, f"{algorithm}_seed_*_metrics.csv"))):
+        base = os.path.basename(path)
+        try:
+            seed = int(base.split("_seed_")[1].split("_")[0])
+        except (IndexError, ValueError):
+            continue
         with open(path, newline="") as fh:
             for row in csv.DictReader(fh):
                 try:
-                    s = float(row["env_steps"])
-                    v = float(row[metric])
+                    steps = float(row["env_steps"])
+                    value = float(row[metric])
                 except (KeyError, TypeError, ValueError):
                     continue
-                if np.isfinite(s) and np.isfinite(v):
-                    steps.append(s)
-                    vals.append(v)
-        if steps:
-            runs.append((np.asarray(steps), np.asarray(vals)))
-        else:
-            print(f"warn: no usable rows in {path}")
-    return runs
+                if np.isfinite(steps) and np.isfinite(value):
+                    rows.append({"steps": steps, "reward": value, "seed": seed})
+    return rows
 
 
-def bin_curve(runs, bin_size: float):
-    """Bin each seed's curve onto a common grid -> (grid, mean, std)."""
-    max_step = max(float(s.max()) for s, _ in runs)
-    edges = np.arange(0.0, max_step + bin_size, bin_size)
-    grid = edges[:-1] + bin_size / 2
-    per_seed = []
-    for steps, vals in runs:
-        idx = np.clip(np.digitize(steps, edges) - 1, 0, len(grid) - 1)
-        sums = np.zeros(len(grid))
-        cnts = np.zeros(len(grid))
-        np.add.at(sums, idx, vals)
-        np.add.at(cnts, idx, 1.0)
-        with np.errstate(invalid="ignore"):
-            curve = np.where(cnts > 0, sums / np.maximum(cnts, 1), np.nan)
-        # forward-fill empty bins
-        last = np.nan
-        for i in range(len(curve)):
-            if np.isnan(curve[i]):
-                curve[i] = last
-            else:
-                last = curve[i]
-        per_seed.append(curve)
-    stack = np.vstack(per_seed)
-    mean = np.nanmean(stack, axis=0)
-    std = np.nanstd(stack, axis=0)
-    ok = ~np.isnan(mean)
-    return grid[ok], mean[ok], std[ok]
+def inference_table(results_dir: str, algorithm: str) -> str | None:
+    """Final-step single-step inference time averaged over seeds (ms)."""
+    finals = []
+    for path in sorted(glob.glob(os.path.join(results_dir, f"{algorithm}_seed_*_metrics.csv"))):
+        last = None
+        with open(path, newline="") as fh:
+            for row in csv.DictReader(fh):
+                try:
+                    last = float(row["infer_ms_mean"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+        if last is not None:
+            finals.append(last)
+    if not finals:
+        return None
+    return f"{np.mean(finals):.3f} ms/step  (seeds={len(finals)})"
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Plot D-HRL reproduction shadow curves.")
+    p = argparse.ArgumentParser(description="D-HRL reproduction shadow curves (user style).")
     p.add_argument("--results-dir", required=True)
     p.add_argument("--algorithms", nargs="+", default=["dhrl", "no_memory", "no_hierarchy"])
-    p.add_argument("--metric", default="reward")
-    p.add_argument("--bin-size", type=float, default=None,
-                   help="Step-bin width; default = max_steps/100.")
+    p.add_argument("--metric", default="reward", help="CSV column to plot (reward / success_rate / ...).")
+    p.add_argument("--bin-size", type=int, default=None, help="Step-bin width; default = max_step/80.")
+    p.add_argument("--raw-x", action="store_true", help="Raw env steps instead of normalized [0,1] x-axis.")
     p.add_argument("--out", default=None)
-    p.add_argument("--title", default="D-HRL Reproduction (Habitat)")
+    p.add_argument("--title", default=None)
     args = p.parse_args()
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    summary: dict[str, str] = {}
-    infer_summary: dict[str, str] = {}
-
-    for i, algo in enumerate(args.algorithms):
-        runs = load_runs(args.results_dir, algo, args.metric)
-        if not runs:
-            print(f"warn: no runs found for algorithm '{algo}' in {args.results_dir}")
+    experiments_data: dict[str, list[dict]] = {}
+    observed_max = 0.0
+    for algo in args.algorithms:
+        rows = load_rows(args.results_dir, algo, args.metric)
+        if not rows:
+            print(f"warn: no rows for '{algo}' (metric={args.metric}) in {args.results_dir}")
             continue
-        max_step = max(float(s.max()) for s, _ in runs)
-        bin_size = args.bin_size or max(1.0, max_step / 100.0)
-        grid, mean, std = bin_curve(runs, bin_size)
-        color = COLORS[i % len(COLORS)]
-        ax.plot(grid, mean, color=color, linewidth=2.2, label=f"{algo} ({len(runs)} seeds)")
-        ax.fill_between(grid, mean - std, mean + std, color=color, alpha=0.2)
+        experiments_data[LABELS.get(algo, algo)] = rows
+        observed_max = max(observed_max, max(r["steps"] for r in rows))
 
-        tail = grid >= 0.9 * grid.max()
-        summary[algo] = f"{np.mean(mean[tail]):.3f} ± {np.mean(std[tail]):.3f}"
+    if not experiments_data:
+        raise SystemExit("no data to plot")
 
-        # inference-time summary (the reviewer-rebuttal metric)
-        inf_runs = load_runs(args.results_dir, algo, "infer_ms_mean")
-        if inf_runs:
-            finals = [v[-1] for _, v in inf_runs]
-            infer_summary[algo] = f"{np.mean(finals):.3f} ms/step"
+    ylabel = "Episode Reward" if args.metric == "reward" else args.metric.replace("_", " ").title()
+    title = args.title or f"D-HRL Reproduction (Habitat, ReplicaCAD) — {args.metric}"
+    out = args.out or os.path.join(args.results_dir, f"dhrl_{args.metric}_shadow.png")
+    bin_size = args.bin_size or max(1, int(observed_max / 80))
 
-    ax.set_xlabel("Environment Steps", fontsize=13)
-    ax.set_ylabel(args.metric, fontsize=13)
-    ax.set_title(args.title, fontsize=15)
-    ax.legend(loc="lower right", fontsize=11)
-    ax.grid(alpha=0.3)
-    fig.tight_layout()
+    plot_learning_curve(
+        experiments_data=experiments_data,
+        bin_size=bin_size,
+        title=title,
+        output_filename=out,
+        ylabel=ylabel,
+        normalize_x=not args.raw_x,
+        x_max=observed_max,
+        plot_seed_lines=True,
+        show=False,
+    )
 
-    out = args.out or os.path.join(args.results_dir, f"curves_{args.metric}.png")
-    fig.savefig(out, dpi=300)
-    print(f"saved {out}\n")
-    print(f"final-window (last 10% of steps) {args.metric}:")
-    for algo, txt in summary.items():
-        print(f"  {algo:14s} {txt}")
-    if infer_summary:
-        print("single-step inference time (推理一步耗时):")
-        for algo, txt in infer_summary.items():
-            print(f"  {algo:14s} {txt}")
+    print(f"\nsingle-step inference time (推理一步耗时):")
+    for algo in args.algorithms:
+        t = inference_table(args.results_dir, algo)
+        if t:
+            print(f"  {LABELS.get(algo, algo):28s} {t}")
 
 
 if __name__ == "__main__":

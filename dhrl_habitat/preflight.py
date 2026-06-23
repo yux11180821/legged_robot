@@ -32,7 +32,7 @@ from dhrl_habitat.multi_env import MultiRobotNavAdapter  # noqa: E402
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--config-name", default="benchmark/multi_agent/hssd_spot_spot.yaml")
+    p.add_argument("--config-name", default="benchmark/multi_agent/replica_cad_spot_spot.yaml")
     p.add_argument("--n-agents", type=int, default=2)
     p.add_argument("--steps", type=int, default=60)
     p.add_argument("--seed", type=int, default=100)

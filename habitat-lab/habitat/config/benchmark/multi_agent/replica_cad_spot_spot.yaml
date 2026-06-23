@@ -1,0 +1,100 @@
+# @package _global_
+# D-HRL reproduction on ReplicaCAD (lightweight scenes), TWO Spot robots.
+#
+# Non-PDDL navigation: RearrangeEmptyTask-v0 (= base RearrangeTask) just spawns
+# the agents; the dhrl_habitat adapter computes the cooperative-navigation team
+# reward itself and reads only num_agents_collide / num_steps from info.  So the
+# env reward_measure is a no-op ("zero").  Agent starts are sampled at runtime
+# on the navmesh (min_distance_start_agents); goals are sampled by the adapter.
+#
+# Episodes are the minimal set authored by dhrl_habitat/make_replica_cad_episodes.py
+# (scene_id + empty object/target lists). Run that generator after downloading
+# replica_cad_dataset. Validate with dhrl_habitat/preflight.py.
+
+defaults:
+  - /habitat: habitat_config_base
+  - /habitat/task: task_config_base
+
+  - /habitat/simulator/sensor_setups@habitat.simulator.agents.agent_0: depth_head_agent
+  - /habitat/simulator/agents@habitat.simulator.agents.agent_0: spot
+
+  - /habitat/simulator/sensor_setups@habitat.simulator.agents.agent_1: depth_head_agent
+  - /habitat/simulator/agents@habitat.simulator.agents.agent_1: spot
+
+  - /habitat/dataset/rearrangement: replica_cad
+
+  - /habitat/task/actions@habitat.task.actions.agent_0_base_velocity: base_velocity_non_cylinder
+  - /habitat/task/actions@habitat.task.actions.agent_1_base_velocity: base_velocity_non_cylinder
+
+  - /habitat/task/measurements:
+    - num_steps
+    - did_agents_collide
+    - num_agents_collide
+    - zero
+  - /habitat/task/lab_sensors:
+    - localization_sensor
+  - _self_
+
+habitat:
+  task:
+    type: RearrangeEmptyTask-v0
+    # The adapter computes the real reward; env reward/success are no-ops.
+    reward_measure: zero
+    success_measure: zero
+    success_reward: 0.0
+    slack_reward: 0.0
+    min_distance_start_agents: 3.0
+    end_on_success: False
+    constraint_violation_ends_episode: False
+    constraint_violation_drops_object: False
+    actions:
+      agent_0_base_velocity:
+        lin_speed: 10.0
+        longitudinal_lin_speed: 10.0
+        lateral_lin_speed: 10.0
+        ang_speed: 10.0
+        allow_dyn_slide: True
+        enable_lateral_move: False  # trainer flips to True (holonomic) at runtime
+        collision_threshold: 1e-5
+        enable_rotation_check_for_dyn_slide: False
+      agent_1_base_velocity:
+        lin_speed: 10.0
+        longitudinal_lin_speed: 10.0
+        lateral_lin_speed: 10.0
+        ang_speed: 10.0
+        allow_dyn_slide: True
+        enable_lateral_move: False
+        collision_threshold: 1e-5
+        enable_rotation_check_for_dyn_slide: False
+  gym:
+    obs_keys:
+      - agent_0_localization_sensor
+      - agent_1_localization_sensor
+  environment:
+    max_episode_steps: 500
+  simulator:
+    type: RearrangeSim-v0
+    seed: 100
+    concur_render: False   # we use no camera obs (only localization); async render needs a bg thread -> off
+    auto_sleep: True
+    agents_order:
+      - agent_0
+      - agent_1
+
+    kinematic_mode: True
+    ac_freq_ratio: 1
+    step_physics: False
+
+    habitat_sim_v0:
+      allow_sliding: True
+      enable_physics: True
+    agents:
+      agent_0:
+        joint_start_noise: 0.0
+      agent_1:
+        joint_start_noise: 0.0
+  dataset:
+    # Overridden to the minimal nav episodes authored by make_replica_cad_episodes.py.
+    type: RearrangeDataset-v0
+    data_path: data/datasets/replica_cad_nav/{split}/nav_episodes.json.gz
+    scenes_dir: data/replica_cad/

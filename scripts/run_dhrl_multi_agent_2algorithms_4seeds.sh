@@ -7,7 +7,7 @@ CONDA_ENV="${CONDA_ENV:-habitat}"
 
 EXP_NAME="${EXP_NAME:-dhrl_social_nav_2algorithms}"
 TOTAL_STEPS="${TOTAL_STEPS:-2000000}"
-NUM_ENVS="${NUM_ENVS:-8}"
+NUM_ENVS="${NUM_ENVS:-1}"
 CKPT_INTERVAL_FRAMES="${CKPT_INTERVAL_FRAMES:-100000}"
 NUM_CHECKPOINTS="${NUM_CHECKPOINTS:-1}"
 LOG_INTERVAL="${LOG_INTERVAL:-10}"
@@ -25,7 +25,7 @@ fi
 
 python train_ddp.py \
   --project-dir "$PROJECT_DIR" \
-  --config-name social_nav/social_nav.yaml \
+  --config-name benchmark/multi_agent/hssd_spot_human_social_nav.yaml \
   --exp-name "$EXP_NAME" \
   --algorithms dhrl no_memory \
   --seeds $SEEDS \
