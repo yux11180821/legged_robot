@@ -3,14 +3,14 @@
 """D-HRL paper reproduction in Habitat (arXiv:2407.06499), advisor-aligned.
 
 Pipeline (see README.md):
-  stage 1   lower_train.py      single-agent operator (位置/速度模式), then frozen
-  stage 1.5 manual_validate.py  人工指令 gate on the frozen operator
-  stage 2   upper_train.py      CTDE MARL of UL+ML over the frozen LL
-            (dhrl / no_memory / no_hierarchy)
-  plots     plot_curves.py      paper-style shadow curves + inference-time table
+  stage 1   lower_nav_train.py    single-agent PPO point-goal nav (one Spot
+                                  learns; the other Spot is a scripted walk), frozen
+  stage 2   upper_mappo_train.py  MAPPO commanding the frozen lower nav policy
+                                  (dhrl / no_memory / no_hierarchy)
+  plots     plot_curves.py        paper-style shadow curves + inference-time table
 
 Pure, locally-tested building blocks: layers, marl_ppo, geometry.
-Habitat-touching modules import habitat lazily (habitat_io, lower_env, multi_env).
+Habitat-touching modules import habitat lazily (habitat_io, lower_nav_env, multi_env).
 """
 
 from .geometry import (
