@@ -1,76 +1,79 @@
 # `dhrl/` — 分布式分层运动控制（arXiv:2407.06499 复现）
 
 复现 **Learning a Distributed Hierarchical Locomotion Controller for Embodied Cooperation**
-（Hong, Huang, Liu — Tsinghua, CoRL 2024）的**策略本身**。代码按标准 on-policy MARL
-框架组织（参考 MARL_for_MeltingPot：`algorithms / networks / envs / memories / runners /
-utils / configs`）。
+（Hong, Huang, Liu — Tsinghua, CoRL 2024）的**策略本身**。
 
-> **本目录目前是骨架（每个文件只有 docstring，标注它对应论文哪一节、将放什么）。
-> 实现代码后续填充。**
+**目录按论文的研究主线组织**（不是通用工程分层）——读者拿着论文，每个文件夹直接对上一节：
+
+```
+hierarchy/    论文核心架构：三层 HRL（§4.1/§4.3, Fig.2）
+distributed/  分布式去中心学习：IPPO + 部分观测（§4.2/§5）
+training/     两阶段训练课程（§5.2）
+cooperation/  具身协同任务 + 仿真世界（§5.1, Fig.1）
+common/       共用工具（含导师的画图函数）
+```
 
 ---
 
 ## ⚠️ 复现的算法是 IPPO（去中心化），不是 MAPPO/CTDE
 
-这是重读论文后最重要的一点（也是之前代码的核心问题）：
+重读论文最关键的一点（也是之前代码的核心问题）：
 
 - §5：“**Independent PPO (IPPO)** in a multi-agent setting is employed as the algorithm.”
 - §4.2：完全去中心化、部分观测，“**unattainable by CTDE frameworks**”。
-- Fig.5(b)(c) “Comparison with **CTDE**”：`Distributed HRL (IPPO)` vs `Centralized
-  Training (MAPPO)` → **MAPPO 收敛更慢、agent 多了不收敛**。
+- Fig.5(b)(c)：`Distributed HRL (IPPO)` vs `Centralized Training (MAPPO)` → **MAPPO 收敛更慢、agent 多了不收敛**。
 
-**结论：MAPPO / 中心化 critic 是论文要打败的 baseline，不是论文方法。**
-本包以 **IPPO 为主方法**（`algorithms/ippo.py`），MAPPO 仅作对照 baseline 保留
-（`algorithms/mappo.py`）。
+**结论：MAPPO/中心化 critic 是论文要打败的 baseline，不是论文方法。**
+本包以 **IPPO 为主**（`distributed/ippo.py`），MAPPO 仅作对照 baseline（`distributed/mappo_baseline.py`）。
 
 ---
 
 ## 整体架构：每个 agent 一份三层 HRL（论文 Fig.2）
 
 ```
-                         ┌──────── 每个 agent 各跑一份（同构共享参数，去中心化）────────┐
-  外部观测 e_t ─────────▶│  UL 上层(感知)  ──feature──▶  ML 中层(RNN, 记忆 h_t)        │
-  [环境高度图 + 仅最近邻] │                                      │ command(命令)        │
-                         │                                      ▼                      │
-  本体观测 p_t ──────────────────────────────────────▶  LL 下层(冻结的运动算子) ──▶ a_t │
-  [位置/速度/关节力矩]   └──────────────────────────────────────────────────────────────┘
+                         ┌──── 每个 agent 各跑一份（同构共享参数，完全去中心化）────┐
+  外部观测 e_t ─────────▶│  UL 上层(感知) ──feature──▶ ML 中层(RNN, 记忆 h_t)      │
+  [环境 + 仅最近邻]      │                                   │ command(命令)        │
+                         │                                   ▼                      │
+  本体观测 p_t ─────────────────────────────────────▶ LL 下层(冻结运动算子) ──▶ a_t │
+  [位置/速度/关节力矩]   └──────────────────────────────────────────────────────────┘
 ```
 
 | 层 | 文件 | 职责（论文） |
 |---|---|---|
-| **UL 上层** | `networks/upper_layer.py` | 感知外部观测 e_t → 特征。e_t = 环境感知 + **仅最近邻**相对位置（§4.2, Fig.3，部分观测=可扩展的关键）|
-| **ML 中层** | `networks/middle_layer.py` | **RNN**，维护时空记忆 h_t → 输出**命令**给下层（§4.3；无 RNN 消融惨败，Table 1）|
-| **LL 下层** | `networks/lower_layer.py` | **预训练后冻结**的运动算子：本体观测 p_t + 命令 → 动作 a_t；位置/速度两模式（§4.1, §5.2.1）|
+| **UL 上层** | `hierarchy/upper_layer.py` | 感知 e_t → 特征。e_t = 环境 + **仅最近邻**相对位置（§4.2, Fig.3，部分观测=可扩展关键）|
+| **ML 中层** | `hierarchy/middle_layer.py` | **RNN** 维护时空记忆 h_t → 输出**命令**（§4.3；无 RNN 消融惨败，Table 1）|
+| **LL 下层** | `hierarchy/lower_layer.py` | **预训练后冻结**的运动算子：p_t + 命令 → a_t；位置/速度两模式（§4.1, §5.2.1）|
+| 拼装 | `hierarchy/policy.py` | UL→ML→冻结LL；PPO 优化的动作是**命令**（UL+ML 训、LL 冻结）|
 
 ---
 
-## 两阶段训练流程
+## 两阶段训练流程（§5.2）
 
 ```
-阶段1 (单智能体)                    阶段2 (多智能体, 去中心化 IPPO)
-┌───────────────────────┐         ┌──────────────────────────────────────┐
-│ ppo_single 训 LL 下层 │ 冻结    │ IPPO 训 UL + ML(RNN)，LL 保持冻结      │
-│ 位置: r=1/L2距离      │ ──────▶ │ 在 协同搬运/走廊穿越/峡谷架桥 上训练   │
-│ 速度: r=速度点积      │ (位置)  │ 课程: 早期稀疏+稠密奖励 (附录)         │
-└───────────────────────┘         └──────────────────────────────────────┘
-  runners/lower_trainer.py          runners/upper_trainer.py
+阶段1 (单智能体)                       阶段2 (多智能体, 去中心化 IPPO)
+┌──────────────────────────┐         ┌────────────────────────────────────────┐
+│ ppo_single 训 LL 下层    │  冻结   │ IPPO 训 UL + ML(RNN)，LL 保持冻结        │
+│ 位置: r=1/L2距离         │ ──────▶ │ 在 协同搬运/走廊穿越/峡谷架桥 上训练     │
+│ 速度: r=速度点积         │ (位置)  │ 每个 agent 只看自己的观测，绝不拼全局    │
+└──────────────────────────┘         └────────────────────────────────────────┘
+  training/stage1_locomotion.py        training/stage2_cooperation.py
 ```
 
-- **阶段1**（`runners/lower_trainer.py`，§5.2.1）：单智能体训下层运动算子，**冻结位置模式**。
-- **阶段2**（`runners/upper_trainer.py`，§5.2.2）：冻结下层之上，用 **IPPO** 训 UL+ML。
-- 同构共享一套策略 + 共享奖励（Eq.1）；异构（峡谷架桥）用按物种的乘积目标（Eq.2）。
+同构共享一套策略 + 共享奖励（Eq.1）；异构（峡谷架桥）用按物种乘积目标（Eq.2）。
+GAE 截断感知：超时 bootstrap V(终态)，真终止不 bootstrap。
 
 ---
 
-## 三个任务（论文 Fig.1）
+## 三个任务（§5.1, Fig.1）
 
 | 任务 | 文件 | 说明 | 论文成功率 |
 |---|---|---|---|
-| Cooperative Transport | `envs/cooperative_transport.py` | 同构群体协同把物体搬到目标区 | 76.8% |
-| Corridor Crossing | `envs/corridor_crossing.py` | 同构，窄走廊轮流通过（让行/牺牲） | 88.4% |
-| Ravine Bridging | `envs/ravine_bridging.py` | **异构**（2 套策略），一组推桥让另一组过 | 50.4% |
+| Cooperative Transport | `cooperation/cooperative_transport.py` | 同构群体协同搬物到目标区 | 76.8% |
+| Corridor Crossing | `cooperation/corridor_crossing.py` | 同构，窄走廊轮流通过（让行） | 88.4% |
+| Ravine Bridging | `cooperation/ravine_bridging.py` | **异构**（2 套策略），一组推桥让另一组过 | 50.4% |
 
-（消融，Table 1：No Hierarchy 全 0%；No Spatiotemporal Memory ~5–12%。）
+（消融 Table 1：No Hierarchy 全 0%；No Spatiotemporal Memory ~5–12%。）
 
 ---
 
@@ -78,38 +81,40 @@ utils / configs`）。
 
 ```
 dhrl/
-  run.py                  统一入口：python -m dhrl.run --config configs/xxx.yaml
-  configs/                YAML 配置（base + 阶段1 + 三个任务）
-  algorithms/
-    ippo.py               ★ 论文方法：Independent PPO（去中心化，去中心 critic）
-    mappo.py              CTDE baseline（仅对照，论文要打败的对象）
-    ppo_single.py         阶段1 单智能体 PPO（训下层算子）
-  networks/
-    upper_layer.py        UL 感知
-    middle_layer.py       ML 时空记忆 RNN
-    lower_layer.py        LL 冻结运动算子
-    hrl_policy.py         三层拼成一个 agent 的策略
-    critic.py             去中心 critic(IPPO) / 中心 critic(MAPPO)
-    distributions.py      TanhNormal 动作分布
-  envs/
-    base.py / obs.py      多智能体接口 + 观测构造（本体 p / 外部 e，仅最近邻）
-    habitat_backend.py    仿真后端（论文用 IsaacSim+Ant；我们用 Habitat+Spot）
+  run.py                          统一入口（清晰调用链：load_config→set_seed→stage 分派）
+  configs/                        YAML 配置（base + 阶段1 + 三个任务）
+  hierarchy/                      ── 论文 §4.1/§4.3 三层 HRL 架构 ──
+    upper_layer.py                UL 感知
+    middle_layer.py               ML 时空记忆 RNN（use_memory=False = 无记忆消融）
+    lower_layer.py                LL 冻结运动算子（阶段1可训 + freeze/load_frozen）
+    policy.py                     三层拼成一个 agent 的策略
+    action.py                     TanhNormal 动作分布（含 deterministic 供 eval 锁网络）
+  distributed/                    ── 论文 §4.2/§5 去中心学习 ──
+    ippo.py                       ★ 论文方法：Independent PPO（去中心、无全局 state）
+    partial_observation.py        §4.2/Fig.3 仅最近邻的部分观测（可扩展关键）
+    critic.py                     去中心 critic(IPPO) + 中心 critic(MAPPO 基线)
+    rollout.py                    带 RNN 隐状态 + 截断 GAE 的 on-policy buffer
+    mappo_baseline.py             CTDE 基线（仅对照，论文要打败的对象）
+  training/                       ── 论文 §5.2 两阶段训练 ──
+    stage1_locomotion.py          阶段1：训下层 → 冻结位置模式
+    stage2_cooperation.py         阶段2：IPPO 训 UL+ML（冻结 LL 之上）
+    ppo_single.py                 阶段1 用的单智能体 PPO
+  cooperation/                    ── 论文 §5.1/Fig.1 协同任务 + 仿真世界 ──
+    environment.py                多智能体 env / Backend 接口
     cooperative_transport.py / corridor_crossing.py / ravine_bridging.py
-  memories/rollout_buffer.py   带 RNN 隐状态 + 截断 GAE 的 on-policy buffer
-  runners/
-    lower_trainer.py      阶段1：训下层→冻结
-    upper_trainer.py      阶段2：IPPO 训上+中层
-  utils/
-    util.py               ★导师标准画图工具 plot_learning_curve(mean±std 阴影带)——全项目统一用它
-    plotting.py           无头后端 + CSV→util 数据格式适配器（都走 util.plot_learning_curve）
-    logging.py            StepLogger + InferenceTimer(单步推理耗时)
-    config.py / seeding.py  YAML 加载 / 统一 set_seed(复用 util)
-  results/                输出
+    locomotion.py                 阶段1 单智能体运动算子预训练任务
+    habitat_world.py              Habitat 仿真后端（论文用 IsaacSim+Ant；我们 Habitat+Spot）
+  common/                         ── 共用工具 ──
+    util.py                       ★导师标准画图 plot_learning_curve（全项目统一用它，原样保留）
+    plotting.py                   无头后端 + CSV→util 适配器
+    logging.py                    StepLogger + InferenceTimer(单步推理耗时)
+    config.py / seeding.py        YAML 加载 / set_seed
+  results/                        输出（曲线/权重）
 ```
 
 ---
 
-## 运行（实现后）
+## 运行
 
 ```bash
 python -m dhrl.run --config dhrl/configs/lower_locomotion.yaml     # 阶段1：训下层并冻结
@@ -119,10 +124,9 @@ python -m dhrl.run --config dhrl/configs/corridor_crossing.yaml    # 阶段2：I
 
 PPO 超参（论文 §5）：Adam lr=5e-4，clip=0.2，γ=0.995。
 
----
+调用链一眼可追：`run.main()` → `common.config.load_config` + `common.seeding.set_seed`
+→ 按 `stage` 分派到 `training.stage1_locomotion.train_lower` 或 `training.stage2_cooperation.train_upper`。
 
-## 与旧代码的关系
-
-旧的 `dhrl_habitat/`（用了 `CentralCritic`=MAPPO/CTDE）复现成了论文的 **baseline** 而非方法。
-本目录是**按论文策略（IPPO + 三层 HRL）重建的结构**；待结构确认后，把可复用的部件
-（TanhNormal、截断 GAE、Habitat 环境搭建、最近邻观测、指标/出图）迁进对应模块，旧目录再清理。
+> 现状：全部代码已实现，非 Habitat 部分（网络/IPPO/GAE/最近邻观测/两阶段循环）本地全程跑通；
+> Habitat 后端懒加载，待上服务器接真环境。旧的 `dhrl_habitat/`（MAPPO/CTDE = 论文 baseline）
+> 待新框架在 Habitat 验证后退役。
