@@ -1,0 +1,6 @@
+# STAGE 2: IPPO over the frozen lower, Cooperative Transport (homogeneous).
+defaults: [base]
+stage: upper
+algorithm: ippo            # ippo = paper ; mappo = CTDE baseline
+task: cooperative_transport
+lower_ckpt: results/lower/position_operator.pt

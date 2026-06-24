@@ -1,0 +1,5 @@
+# STAGE 1: single-agent lower operator pre-training.
+defaults: [base]
+stage: lower
+algorithm: ppo_single
+paradigm: position   # position | velocity ; freeze the position-mode operator for stage 2

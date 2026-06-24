@@ -1,0 +1,5 @@
+defaults: [base]
+stage: upper
+algorithm: ippo
+task: corridor_crossing
+lower_ckpt: results/lower/position_operator.pt

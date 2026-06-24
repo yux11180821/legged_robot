@@ -1,0 +1,4 @@
+# Shared defaults (paper §5 hyper-parameters).
+ppo: { lr: 0.0005, clip: 0.2, gamma: 0.995, gae_lambda: 0.95, epochs: 4, minibatches: 4 }
+seeds: [100, 200, 300, 400]
+log_every: 2000

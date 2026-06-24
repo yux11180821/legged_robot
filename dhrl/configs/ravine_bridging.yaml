@@ -1,0 +1,7 @@
+# Heterogeneous task -> two policies (Eq.2).
+defaults: [base]
+stage: upper
+algorithm: ippo
+task: ravine_bridging
+heterogeneous: true
+lower_ckpt: results/lower/position_operator.pt
