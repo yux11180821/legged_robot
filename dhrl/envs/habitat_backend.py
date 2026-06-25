@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .environment import Backend
+from .base import Backend
 
 _ACTION_KEY = "agent_{}_base_velocity"
 _LOC_KEY = "agent_{}_localization_sensor"

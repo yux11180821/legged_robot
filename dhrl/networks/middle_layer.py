@@ -15,7 +15,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from .action import TanhNormal
+from .distributions import TanhNormal
 
 
 class MiddleLayer(nn.Module):

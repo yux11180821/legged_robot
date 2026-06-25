@@ -16,7 +16,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from .action import TanhNormal
+from .distributions import TanhNormal
 
 
 def _mlp(in_dim: int, hidden: int) -> nn.Sequential:

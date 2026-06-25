@@ -19,10 +19,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from dhrl.training.ppo_single import normalize, ppo_update_lower
-from dhrl.distributed.rollout import compute_gae_truncated
-from dhrl.hierarchy.lower_layer import LowerLayer
-from dhrl.common.logging import StepLogger
+from dhrl.algorithms.ppo_single import normalize, ppo_update_lower
+from dhrl.memories.rollout_buffer import compute_gae_truncated
+from dhrl.networks.lower_layer import LowerLayer
+from dhrl.utils.logging import StepLogger
 
 
 def run_lower(env_fn, cfg: dict, *, device=None, results_dir="dhrl/results/lower", exp_name="lower"):
@@ -143,7 +143,7 @@ def train_lower(cfg: dict):
     Returns:
         str: path to the saved frozen-operator checkpoint (forwarded from ``run_lower``).
     """
-    from dhrl.cooperation.locomotion import LocomotionEnv
+    from dhrl.envs.locomotion import LocomotionEnv
 
     def make():
         """Factory: a fresh single-agent ``LocomotionEnv`` for the configured paradigm + seed."""

@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import argparse
 
-from dhrl.common.config import load_config
-from dhrl.common.seeding import set_seed
+from dhrl.utils.config import load_config
+from dhrl.utils.seeding import set_seed
 
 
 def main(argv=None) -> None:
@@ -55,11 +55,11 @@ def main(argv=None) -> None:
     stage = cfg.get("stage")
     if stage == "lower":
         # Stage 1: single-agent pre-training of the locomotion operator, then freeze + save.
-        from dhrl.training.stage1_locomotion import train_lower
+        from dhrl.runners.lower_trainer import train_lower
         out = train_lower(cfg)
     elif stage == "upper":
         # Stage 2: decentralized IPPO over UL+ML with the frozen stage-1 LL on a cooperation task.
-        from dhrl.training.stage2_cooperation import train_upper
+        from dhrl.runners.upper_trainer import train_upper
         out = train_upper(cfg)
     else:
         # Any other ``stage`` value is a config error -> abort with a clear message.

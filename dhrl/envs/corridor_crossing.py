@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from dhrl.distributed import partial_observation as O
-from .environment import Backend, MultiAgentEnv
+from . import obs as O
+from .base import Backend, MultiAgentEnv
 
 
 class CorridorCrossing(MultiAgentEnv):

@@ -15,7 +15,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from .action import TanhNormal
+from .distributions import TanhNormal
 from .lower_layer import LowerLayer
 from .middle_layer import MiddleLayer
 from .upper_layer import UpperLayer

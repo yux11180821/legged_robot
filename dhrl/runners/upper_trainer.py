@@ -24,12 +24,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from dhrl.distributed.ippo import IPPO
-from dhrl.distributed.rollout import RolloutBuffer
-from dhrl.distributed.critic import DecentralizedCritic
-from dhrl.hierarchy.policy import HRLPolicy
-from dhrl.hierarchy.lower_layer import LowerLayer
-from dhrl.common.logging import InferenceTimer, StepLogger
+from dhrl.algorithms.ippo import IPPO
+from dhrl.memories.rollout_buffer import RolloutBuffer
+from dhrl.networks.critic import DecentralizedCritic
+from dhrl.networks.hrl_policy import HRLPolicy
+from dhrl.networks.lower_layer import LowerLayer
+from dhrl.utils.logging import InferenceTimer, StepLogger
 
 
 def run_upper(env_fns, cfg: dict, *, device=None, results_dir="dhrl/results", exp_name="upper"):
@@ -186,8 +186,8 @@ def train_upper(cfg: dict):
     Returns:
         str: path to the saved stage-2 checkpoint (forwarded from ``run_upper``).
     """
-    from dhrl.cooperation.corridor_crossing import CorridorCrossing
-    from dhrl.cooperation.habitat_world import HabitatBackend
+    from dhrl.envs.corridor_crossing import CorridorCrossing
+    from dhrl.envs.habitat_backend import HabitatBackend
 
     task = {"corridor_crossing": CorridorCrossing}[cfg["task"]]  # map the config task name to its class
     n_agents = cfg.get("n_agents", 2)
