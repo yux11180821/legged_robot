@@ -106,17 +106,23 @@ dhrl/
 
 ---
 
-## 运行
+## 运行（从 `dhrl/` 目录内运行，与 MARL_for_MeltingPot 一致）
 
 ```bash
-python -m dhrl.run --config dhrl/configs/lower_locomotion.yaml     # 阶段1：训下层并冻结
-python -m dhrl.run --config dhrl/configs/corridor_crossing.yaml    # 阶段2：IPPO
-# 对照 baseline：把 config 里 algorithm 改成 mappo
+cd dhrl
+python run.py --config configs/lower_locomotion.yaml      # 阶段1：训下层并冻结
+python run.py --config configs/corridor_crossing.yaml     # 阶段2：IPPO
+# 对照 baseline：把 config 里 algo 改成 algorithms.mappo.MAPPO
 ```
 
 PPO 超参（论文 §5）：Adam lr=5e-4，clip=0.2，γ=0.995。
-调用链：`run.main()` → `utils.config.load_config` + `utils.seeding.set_seed` →
-按 `stage` 分派到 `runners.lower_trainer.train_lower` 或 `runners.upper_trainer.train_upper`。
+
+**代码风格对齐 MARL_for_MeltingPot**：
+- 算法是**一个 agent 类**（`IPPO(env_info, args)`，内部建 actor+critic+优化器，含 `init_hidden/take_action/update/save`，GAE 和更新都在内部）；
+- 训练是**一个 `train(args, envs, agent, buffer)` 大函数**（循环内联、从上读到下，无工厂 lambda / 无 hack）；
+- **普通类，无 ABC/Protocol**；env 有 `get_env_info()`；
+- **扁平 args 配置**（`get_config()` 把 YAML 读成 namespace，`load_algorithm` 按字符串加载算法类）；
+- 调用链：`run.main()` → `get_config()` + `set_seed` → 按 `stage` 调 `train_lower(args)` 或 建 env/agent/buffer 后调 `train(args, envs, agent, buffer)`。
 
 > 现状：全部代码已实现且每个函数有注释，非 Habitat 部分（网络/IPPO/GAE/最近邻观测/两阶段循环）
 > 本地全程跑通；Habitat 后端懒加载，待上服务器接真环境。

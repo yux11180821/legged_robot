@@ -17,7 +17,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from dhrl.memories.rollout_buffer import compute_gae_truncated  # noqa: F401  (re-exported)
+from memories.rollout_buffer import compute_gae_truncated  # noqa: F401  (re-exported)
 
 
 def ppo_update_lower(lower, optimizer, batch: dict, *, clip_param: float = 0.2,

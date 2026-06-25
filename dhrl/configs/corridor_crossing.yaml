@@ -1,5 +1,25 @@
-defaults: [base]
 stage: upper
-algorithm: ippo
+algo: algorithms.ippo.IPPO
 task: corridor_crossing
+config_name: benchmark/multi_agent/replica_cad_spot_spot.yaml
+n_agents: 2
+command_dim: 3
+num_envs: 4
+hidden_dim: 256
+use_memory: true
+lr: 0.0005
+gamma: 0.995
+gae_lambda: 0.95
+clip: 0.2
+value_coef: 0.5
+entropy_coef: 0.001
+max_grad_norm: 0.5
+ppo_epochs: 4
+num_minibatches: 4
+target_kl: null
+rollout_steps: 128
+total_steps: 500000
 lower_ckpt: results/lower/position_operator.pt
+run_dir: results/upper
+seeds: [100, 200, 300, 400]
+device: cuda

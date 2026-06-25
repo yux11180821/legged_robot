@@ -1,5 +1,14 @@
-# STAGE 1: single-agent lower operator pre-training.
-defaults: [base]
 stage: lower
-algorithm: ppo_single
-paradigm: position   # position | velocity ; freeze the position-mode operator for stage 2
+paradigm: position
+hidden_dim: 256
+lr: 0.0005
+gamma: 0.995
+gae_lambda: 0.95
+clip: 0.2
+ppo_epochs: 4
+num_minibatches: 4
+rollout_steps: 256
+total_steps: 200000
+run_dir: results/lower
+seeds: [100, 200, 300, 400]
+device: cuda
